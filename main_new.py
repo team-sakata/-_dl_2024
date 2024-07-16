@@ -24,16 +24,24 @@ def run(args: DictConfig):
     # ------------------
     #    Dataloader
     # ------------------
+        
+    #古いバージョン
+        
     loader_args = {"batch_size": args.batch_size, "num_workers": args.num_workers}
-    
-    train_set = ThingsMEGDataset("train", args.data_dir, os.path.join(args.data_dir, 'train_image_paths.txt'))
+
+    train_set = ThingsMEGDataset("train", args.data_dir)
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, **loader_args)
-    val_set = ThingsMEGDataset("val", args.data_dir, os.path.join(args.data_dir, 'val_image_paths.txt'))
+
+    val_set = ThingsMEGDataset("val", args.data_dir)
     val_loader = torch.utils.data.DataLoader(val_set, shuffle=False, **loader_args)
-    test_set = ThingsMEGDataset("test", args.data_dir)  # テストデータには画像パスファイルなし
+
+    test_set = ThingsMEGDataset("test", args.data_dir)
     test_loader = torch.utils.data.DataLoader(
         test_set, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers
     )
+    
+
+    
 
     # ------------------
     #       Model
@@ -53,6 +61,9 @@ def run(args: DictConfig):
     # ------------------
     #   Start training
     # ------------------  
+
+ 
+    #新しいバージョン
     max_val_acc = 0
     accuracy = Accuracy(
         task="multiclass", num_classes=train_set.num_classes, top_k=10
@@ -64,10 +75,10 @@ def run(args: DictConfig):
         train_loss, train_acc, val_loss, val_acc = [], [], [], []
         
         model.train()
-        for X, image, y, subject_idxs in tqdm(train_loader, desc="Train"):
-            X, image, y = X.to(args.device), image.to(args.device), y.to(args.device)
+        for X, y, subject_idxs in tqdm(train_loader, desc="Train"):
+            X, y = X.to(args.device), y.to(args.device)
 
-            y_pred = model(X, image)
+            y_pred = model(X)
             
             loss = F.cross_entropy(y_pred, y)
             train_loss.append(loss.item())
@@ -80,11 +91,11 @@ def run(args: DictConfig):
             train_acc.append(acc.item())
 
         model.eval()
-        for X, image, y, subject_idxs in tqdm(val_loader, desc="Validation"):
-            X, image, y = X.to(args.device), image.to(args.device), y.to(args.device)
+        for X, y, subject_idxs in tqdm(val_loader, desc="Validation"):
+            X, y = X.to(args.device), y.to(args.device)
             
             with torch.no_grad():
-                y_pred = model(X, image)
+                y_pred = model(X)
             
             val_loss.append(F.cross_entropy(y_pred, y).item())
             val_acc.append(accuracy(y_pred, y).item())
@@ -98,18 +109,20 @@ def run(args: DictConfig):
             cprint("New best.", "cyan")
             torch.save(model.state_dict(), os.path.join(logdir, "model_best.pt"))
             max_val_acc = np.mean(val_acc)
-            
     
     # ----------------------------------
     #  Start evaluation with best model
     # ----------------------------------
+     
+    #新しいバージョン
     model.load_state_dict(torch.load(os.path.join(logdir, "model_best.pt"), map_location=args.device))
 
     preds = [] 
     model.eval()
-    for X, image, subject_idxs in tqdm(test_loader, desc="Validation"):  # 画像データなし
-        preds.append(model(X.to(args.device), image.to(args.device)).detach().cpu())  # ダミー画像データが入る
-        
+    for X, subject_idxs in tqdm(test_loader, desc="Evaluation"):
+        with torch.no_grad():
+            preds.append(model(X.to(args.device)).detach().cpu())
+            
     preds = torch.cat(preds, dim=0).numpy()
     np.save(os.path.join(logdir, "submission.npy"), preds)
     cprint(f"Submission {preds.shape} saved at {logdir}", "cyan")
